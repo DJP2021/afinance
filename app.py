@@ -15,7 +15,7 @@ SMTP_USER = "emailapikey"
 SMTP_PASSWORD = "yA6KbHtbug+jwGoGRhRvhJOL+t03rP06iiy14irif8IhI9Ll2qFt0EducdCzLmDdjI/Q4qhTPtsTI9rv79xafJA0NoICfJTGTuv4P2uV48xh8ciEYNYig56qBbgUG6RLcBMjDCwxRPgoWA=="
 
 # Das ist die Adresse, die du bei ZeptoMail verifiziert hast!
-ACTUAL_SENDER_EMAIL = "noreply@abifinanzen.de" 
+ACTUAL_SENDER = "noreply@abifinanzen.de" 
 SENDER_NAME = "Abifinanzen Team"
 # --- HOCHWERTIGES HTML EMAIL TEMPLATE ---
 def generate_html_email(title, greeting, lead_text, amount_label, amount_value, detail_label, detail_value, footer_extra=""):
