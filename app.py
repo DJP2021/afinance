@@ -116,7 +116,7 @@ def build_pro_email(title, name, lead, val1_label, val1_val, val2_label, val2_va
                 </table>
                 <center><a href="https://abifinanzen.de" class="btn">{button_text}</a></center>
             </div>
-            <div class="footer">Diese Mail wurde automatisch generiert. &copy; 2026 Abikasse</div>
+            <div class="footer">Diese Mail wurde automatisch generiert. &copy; 2026 Abifinanzen.de</div>
         </div>
     </body>
     </html>
@@ -260,11 +260,11 @@ def send_logic():
     else:
         name, v1, v2, bt = request.form.get('name'), request.form.get('v1'), request.form.get('v2'), request.form.get('btn_text')
         if m == 'confirm':
-            subj, content = "Zahlungsbestätigung erhalten ✅", build_pro_email("Zahlung verbucht", name, "Deine Zahlung für die Abikasse wurde erfolgreich registriert.", "Betrag", v1, "Verwendungszweck", v2, "#10b981", bt)
+            subj, content = "Zahlung erfolgreich | Informationen zu Deinem Abijahrgang", build_pro_email("Zahlung verbucht", name, "Deine Zahlung für die Abikasse wurde erfolgreich registriert.", "Betrag", v1, "Verwendungszweck", v2, "#10b981")
         elif m == 'remind':
-            subj, content = "WICHTIG: Zahlung ausstehend ⏰", build_pro_email("Zahlungserinnerung", name, "Uns ist aufgefallen, dass dein Beitrag für den Abiball noch fehlt.", "Offener Betrag", v1, "Frist bis", v2, "#f59e0b", bt)
+            subj, content = "WICHTIG: Zahlung ausstehend | Informationen zu Deinem Abijahrgang", build_pro_email("Zahlungserinnerung", name, "Uns ist aufgefallen, dass dein Beitrag für den Abiball noch fehlt.", "Offener Betrag", v1, "Frist bis", v2, "#f59e0b")
         else:
-            subj, content = "Dein aktueller Kontostand 📊", build_pro_email("Kontostand-Update", name, "Hier ist die aktuelle Übersicht deiner Einzahlungen.", "Gesamtguthaben", v1, "Letzte Buchung", v2, "#3b82f6", bt)
+            subj, content = "Dein aktueller Kontostand | Informationen zu Deinem Abijahrgang", build_pro_email("Kontostand-Update", name, "Hier ist die aktuelle Übersicht deiner Einzahlungen.", "Gesamtguthaben", v1, "#3b82f6")
 
     if send_mail(email, subj, content):
         flash(f"Erfolg: E-Mail an {email} wurde übermittelt.")
