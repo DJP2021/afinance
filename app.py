@@ -1,170 +1,256 @@
 import os
 import csv
 import io
-import requests
-from flask import Flask, render_template_string, request, flash, redirect, url_for
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from flask import Flask, render_template_string, request, flash, redirect, url_for, send_from_directory
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = "abifinanzen_premium_key"
+app.secret_key = "abifinanzen_ultra_secret"
 
-# --- KONFIGURATION (API statt SMTP für Render Stabilität) ---
-ZEPTO_API_URL = "https://api.zeptomail.eu/v1.1/email"
-ZEPTO_KEY = "yA6KbHtbug+jwGoGRhRvhJOL+t03rP06iiy14irif8IhI9Ll2qFt0EducdCzLmDdjI/Q4qhTPtsTI9rv79xafJA0NoICfJTGTuv4P2uV48xh8ciEYNYig56qBbgUG6RLcBMjDCwxRPgoWA=="
+# --- CONFIG ---
+UPLOAD_FOLDER = 'static/uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# SMTP Settings
+SMTP_SERVER = "smtp.zeptomail.eu"
+SMTP_PORT = 465
+SMTP_USER = "emailapikey"
+SMTP_PASSWORD = os.environ.get("SMTP_PASS", "yA6KbHtbug+jwGoGRhRvhJOL+t03rP06iiy14irif8IhI9Ll2qFt0EducdCzLmDdjI/Q4qhTPtsTI9rv79xafJA0NoICfJTGTuv4P2uV48xh8ciEYNYig56qBbgUG6RLcBMjDCwxRPgoWA==")
+
 ACTUAL_SENDER = "noreply@abifinanzen.de"
-SENDER_NAME = "Abifinanzen Team"
+SENDER_NAME = "Abifinanzen Admin"
 
-# --- EMAIL ENGINE ---
-def send_zeptomail(recipient, subject, html_content):
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "authorization": f"Zoho-enczpt {ZEPTO_KEY}"
-    }
-    payload = {
-        "from": {"address": ACTUAL_SENDER, "name": SENDER_NAME},
-        "to": [{"email_address": {"address": recipient}}],
-        "subject": subject,
-        "htmlbody": html_content
-    }
+# Globaler Pfad für das Logo
+current_logo = None
+
+# --- HELPER ---
+def send_mail(recipient, subject, html_content):
     try:
-        response = requests.post(ZEPTO_API_URL, json=payload, headers=headers, timeout=10)
-        return response.status_code == 200
+        msg = MIMEMultipart()
+        msg['From'] = f"{SENDER_NAME} <{ACTUAL_SENDER}>"
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, 'html'))
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+        return True
     except Exception as e:
-        print(f"API Fehler: {e}")
+        print(f"Fehler: {e}")
         return False
 
 # --- TEMPLATES ---
-BASE_LAYOUT = """
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Abifinanzen Admin</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        :root { --primary: #1a1f36; --accent: #3b82f6; }
-        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        .sidebar { background: var(--primary); min-height: 100vh; color: white; padding: 20px; }
-        .nav-link { color: #94a3b8; margin-bottom: 10px; border-radius: 8px; transition: 0.3s; }
-        .nav-link:hover, .nav-link.active { background: rgba(255,255,255,0.1); color: white; }
-        .card { border: none; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .btn-primary { background: var(--primary); border: none; }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="row">
-            <nav class="col-md-2 sidebar d-none d-md-block">
-                <h4 class="mb-5 header-title">abifinanzen</h4>
-                <div class="nav flex-column">
-                    <a href="/" class="nav-link">🏠 Dashboard</a>
-                    <hr>
-                    <a href="/type/confirm" class="nav-link">✅ Bestätigung</a>
-                    <a href="/type/remind" class="nav-link">⏰ Erinnerung</a>
-                    <a href="/type/status" class="nav-link">📊 Kontostand</a>
-                    <a href="/type/bulk" class="nav-link">📂 Massenversand</a>
-                </div>
-            </nav>
-            <main class="col-md-10 ms-sm-auto px-md-4 py-4">
-                {% with messages = get_flashed_messages() %}
-                    {% if messages %}{% for m in messages %}<div class="alert alert-info border-0 shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
-                {% endwith %}
-                {{ content | safe }}
-            </main>
+
+NAV = """
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 shadow">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="/">abifinanzen.de</a>
+        <div class="navbar-nav">
+            <a class="nav-link" href="/confirm">✅ Bestätigung</a>
+            <a class="nav-link" href="/remind">⏰ Erinnerung</a>
+            <a class="nav-link" href="/status">📊 Kontostand</a>
+            <a class="nav-link" href="/custom">🎨 Custom HTML</a>
         </div>
     </div>
-</body>
-</html>
+</nav>
 """
 
-def generate_html_email(title, greeting, lead_text, amount_label, amount_value, detail_label, detail_value):
-    return f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
-        <div style="background: #1a1f36; color: white; padding: 30px; text-align: center;"><h1>abifinanzen.de</h1></div>
-        <div style="padding: 30px; color: #333;">
-            <h2>{title}</h2>
-            <p>Hallo {greeting},</p>
-            <p>{lead_text}</p>
-            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <p><strong>{amount_label}:</strong> {amount_value}</p>
-                <p><strong>{detail_label}:</strong> {detail_value}</p>
-            </div>
-        </div>
-        <div style="text-align: center; font-size: 12px; color: #999; padding: 20px;">&copy; 2026 Abikasse Team</div>
-    </div>
-    """
+# Gemeinsame Komponente für Logo-Upload
+LOGO_UPLOAD_PART = """
+<div class="card mb-3 p-3 border-0 bg-light">
+    <h6>Header Logo</h6>
+    {% if logo_url %}
+        <img src="{{ logo_url }}" style="max-height: 50px;" class="mb-2 d-block">
+    {% endif %}
+    <form action="/upload_logo" method="POST" enctype="multipart/form-data" class="d-flex gap-2">
+        <input type="file" name="logo" class="form-control form-control-sm" accept="image/*">
+        <button class="btn btn-sm btn-outline-secondary">Upload</button>
+    </form>
+</div>
+"""
 
 # --- ROUTES ---
+
 @app.route('/')
-def dashboard():
-    html = '<div class="card p-5 text-center"><h1>Willkommen im Finanz-Admin</h1><p>Wähle links eine Kategorie aus, um E-Mails zu versenden.</p></div>'
-    return render_template_string(BASE_LAYOUT, content=html)
+def index():
+    return render_template_string(f"{NAV}<div class='container'><h1>Willkommen</h1><p>Wähle einen Typ oben aus.</p></div>")
 
-@app.route('/type/<mode>')
-def mail_form(mode):
-    titles = {"confirm": "Zahlungsbestätigung", "remind": "Zahlungserinnerung", "status": "Kontostand senden", "bulk": "CSV Massen-Upload"}
-    
-    if mode == "bulk":
-        form_content = """
-        <form action="/send_bulk" method="POST" enctype="multipart/form-data">
-            <div class="mb-3"><label class="form-label">CSV Datei auswählen</label><input type="file" name="file" class="form-control" accept=".csv" required></div>
-            <button class="btn btn-primary w-100">Massenversand starten</button>
-        </form>
-        """
-    else:
-        form_content = f"""
-        <form action="/process_send" method="POST">
-            <input type="hidden" name="mode" value="{mode}">
-            <div class="row mb-3">
-                <div class="col-md-6"><label class="form-label">Empfänger Email</label><input type="email" name="email" class="form-control" required></div>
-                <div class="col-md-6"><label class="form-label">Name des Schülers</label><input type="text" name="name" class="form-control" required></div>
-            </div>
-            <div class="row mb-3">
-                <div class="col-md-6"><label class="form-label">Betrag (€)</label><input type="text" name="amount" class="form-control" placeholder="45,00 €"></div>
-                <div class="col-md-6"><label class="form-label">Zusatz-Info (Frist/Datum)</label><input type="text" name="detail" class="form-control"></div>
-            </div>
-            <button class="btn btn-primary w-100">E-Mail jetzt an Einzelerzeuger senden</button>
-        </form>
-        """
-    
-    content = f'<div class="card p-4"><h3>{titles.get(mode)}</h3><hr>{form_content}</div>'
-    return render_template_string(BASE_LAYOUT, content=content)
+@app.route('/upload_logo', methods=['POST'])
+def upload_logo():
+    global current_logo
+    file = request.files.get('logo')
+    if file:
+        filename = secure_filename(file.filename)
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        current_logo = filename
+    return redirect(request.referrer)
 
-@app.route('/process_send', methods=['POST'])
-def process_send():
-    mode = request.form.get('mode')
+@app.route('/static/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# ROUTE: Bestätigung (Grün-Themed)
+@app.route('/confirm')
+def confirm_page():
+    logo_url = url_for('uploaded_file', filename=current_logo) if current_logo else None
+    html = f"""
+    {NAV}
+    <div class="container">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card p-4 border-start border-success border-5">
+                    <h2 class="text-success">Zahlungsbestätigung</h2>
+                    {LOGO_UPLOAD_PART}
+                    <form action="/send_logic" method="POST">
+                        <input type="hidden" name="type" value="confirm">
+                        <input type="email" name="email" class="form-control mb-2" placeholder="Schüler Email" required>
+                        <input type="text" name="name" class="form-control mb-2" placeholder="Vorname">
+                        <input type="text" name="val1" class="form-control mb-2" placeholder="Betrag (€)">
+                        <input type="text" name="val2" class="form-control mb-2" placeholder="Verwendungszweck">
+                        <button class="btn btn-success w-100">Mail senden</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-4 bg-white shadow-sm rounded">
+                    <small class="text-muted">Vorschau:</small>
+                    <div style="background:#e8f5e9; padding:20px; text-align:center;">
+                        {f'<img src="{logo_url}" style="max-height:40px;">' if logo_url else '<h4>LOGOTYP</h4>'}
+                    </div>
+                    <div style="padding:20px; border:1px solid #eee;">
+                        <h3 style="color:#2e7d32;">Vielen Dank!</h3>
+                        <p>Zahlung wurde erfolgreich verbucht.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    """
+    return render_template_string(html, logo_url=logo_url)
+
+# ROUTE: Erinnerung (Gelb/Orange-Themed)
+@app.route('/remind')
+def remind_page():
+    logo_url = url_for('uploaded_file', filename=current_logo) if current_logo else None
+    html = f"""
+    {NAV}
+    <div class="container">
+        <div class="card p-4 border-start border-warning border-5 shadow" style="max-width:600px; margin:auto;">
+            <h2 class="text-warning">Zahlungserinnerung</h2>
+            {LOGO_UPLOAD_PART}
+            <form action="/send_logic" method="POST">
+                <input type="hidden" name="type" value="remind">
+                <input type="email" name="email" class="form-control mb-2" placeholder="Email" required>
+                <input type="text" name="name" class="form-control mb-2" placeholder="Name">
+                <input type="text" name="val1" class="form-control mb-2" placeholder="Offener Betrag">
+                <input type="text" name="val2" class="form-control mb-2" placeholder="Frist bis">
+                <button class="btn btn-warning w-100 fw-bold">Erinnerung schicken</button>
+            </form>
+        </div>
+    </div>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    """
+    return render_template_string(html, logo_url=logo_url)
+
+# ROUTE: Status (Blau-Themed)
+@app.route('/status')
+def status_page():
+    logo_url = url_for('uploaded_file', filename=current_logo) if current_logo else None
+    html = f"""
+    {NAV}
+    <div class="container">
+        <div class="card p-4 border-start border-primary border-5" style="max-width:600px; margin:auto;">
+            <h2 class="text-primary">Kontostand-Update</h2>
+            {LOGO_UPLOAD_PART}
+            <form action="/send_logic" method="POST">
+                <input type="hidden" name="type" value="status">
+                <input type="email" name="email" class="form-control mb-2" placeholder="Email" required>
+                <input type="text" name="name" class="form-control mb-2" placeholder="Name">
+                <input type="text" name="val1" class="form-control mb-2" placeholder="Aktuelles Guthaben">
+                <input type="text" name="val2" class="form-control mb-2" placeholder="Letzte Einzahlung">
+                <button class="btn btn-primary w-100">Status senden</button>
+            </form>
+        </div>
+    </div>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    """
+    return render_template_string(html, logo_url=logo_url)
+
+# ROUTE: Custom (Live Preview)
+@app.route('/custom')
+def custom_page():
+    html = f"""
+    {NAV}
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-6">
+                <h3>Custom HTML Editor</h3>
+                <form action="/send_logic" method="POST">
+                    <input type="hidden" name="type" value="custom">
+                    <input type="email" name="email" class="form-control mb-2" placeholder="Empfänger Email" required>
+                    <input type="text" name="subject" class="form-control mb-2" placeholder="Betreff" required>
+                    <textarea id="htmlInput" name="html_content" class="form-control" rows="15" placeholder="Hier HTML eingeben..."></textarea>
+                    <button class="btn btn-dark w-100 mt-3">HTML Mail Senden</button>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <h3>Live Vorschau</h3>
+                <iframe id="preview" style="width:100%; height:600px; border:1px solid #ddd; background:white;"></iframe>
+            </div>
+        </div>
+    </div>
+    <script>
+        const input = document.getElementById('htmlInput');
+        const preview = document.getElementById('preview');
+        input.addEventListener('input', () => {{
+            const doc = preview.contentDocument || preview.contentWindow.document;
+            doc.open();
+            doc.write(input.value);
+            doc.close();
+        }});
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    """
+    return render_template_string(html)
+
+@app.route('/send_logic', methods=['POST'])
+def send_logic():
+    m_type = request.form.get('type')
     email = request.form.get('email')
-    name = request.form.get('name')
-    amt = request.form.get('amount')
-    det = request.form.get('detail')
-
-    if mode == "confirm":
-        subj, html = "Zahlung bestätigt", generate_html_email("Vielen Dank!", name, "Deine Zahlung wurde erfolgreich verbucht.", "Erhaltener Betrag", amt, "Zweck", det)
-    elif mode == "remind":
-        subj, html = "Zahlungserinnerung", generate_html_email("Erinnerung", name, "Dein Beitrag steht noch aus.", "Offener Betrag", amt, "Frist", det)
+    
+    if m_type == "custom":
+        subject = request.form.get('subject')
+        content = request.form.get('html_content')
     else:
-        subj, html = "Dein Kontostand", generate_html_email("Kontostand", name, "Hier ist dein aktueller Status.", "Guthaben", amt, "Letzte Buchung", det)
+        name = request.form.get('name')
+        v1 = request.form.get('val1')
+        v2 = request.form.get('val2')
+        logo_html = f'<img src="{request.host_url}static/uploads/{current_logo}" style="max-height:60px; margin-bottom:20px;">' if current_logo else ""
+        
+        if m_type == "confirm":
+            subject = "Zahlung bestätigt - abifinanzen"
+            color = "#2e7d32"
+            content = f"<div style='font-family:sans-serif; padding:30px; border:10px solid {color};'>{logo_html}<h2 style='color:{color}'>Zahlung bestätigt</h2><p>Hallo {name}, wir haben <b>{v1}</b> für <b>{v2}</b> erhalten.</p></div>"
+        elif m_type == "remind":
+            subject = "Dringend: Zahlung ausstehend"
+            color = "#ed6c02"
+            content = f"<div style='font-family:sans-serif; padding:30px; border:10px solid {color};'>{logo_html}<h2 style='color:{color}'>Zahlung fehlt noch</h2><p>Hallo {name}, bitte überweise <b>{v1}</b> bis zum <b>{v2}</b>.</p></div>"
+        else: # status
+            subject = "Dein Kontostand"
+            color = "#0288d1"
+            content = f"<div style='font-family:sans-serif; padding:30px; border:10px solid {color};'>{logo_html}<h2 style='color:{color}'>Dein Saldo</h2><p>Hallo {name}, dein Guthaben beträgt: <b>{v1}</b>. Letzte Buchung: {v2}.</p></div>"
 
-    if send_zeptomail(email, subj, html):
-        flash(f"Erfolgreich gesendet an {email}")
+    if send_mail(email, subject, content):
+        flash(f"Gesendet an {email}")
     else:
-        flash("Fehler beim API-Versand.")
-    return redirect(url_for('mail_form', mode=mode))
-
-@app.route('/send_bulk', methods=['POST'])
-def send_bulk():
-    file = request.files['file']
-    stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-    csv_input = csv.reader(stream)
-    count = 0
-    for row in csv_input:
-        if len(row) < 4: continue
-        email, name, amt, det = row
-        html = generate_html_email("Bestätigung", name, "Zahlung verbucht.", "Betrag", amt, "Info", det)
-        if send_zeptomail(email, "Update Abikasse", html): count += 1
-    flash(f"Massenversand fertig: {count} Mails verschickt.")
-    return redirect(url_for('mail_form', mode='bulk'))
+        flash("SMTP Fehler")
+    return redirect(url_for(f'{m_type}_page'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
