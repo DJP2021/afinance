@@ -184,20 +184,20 @@ MAIN_UI = """
 def send_mail(recipient, subject, html_content):
     try:
         msg = MIMEMultipart()
-        # WICHTIG: Hier wird die verifizierte Adresse als Absender gesetzt
-        msg['From'] = f"{SENDER_NAME} <{ACTUAL_SENDER_EMAIL}>"
+        msg['From'] = f"{SENDER_NAME} <{ACTUAL_SENDER}>"
         msg['To'] = recipient
         msg['Subject'] = subject
         msg.attach(MIMEText(html_content, 'html'))
         
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            # Der Login erfolgt mit 'emailapikey'
+        # Nutze SMTP_SSL für Port 465 (sicherer und oft nicht blockiert)
+        # WICHTIG: Port muss 465 sein, wenn SMTP_SSL genutzt wird!
+        with smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=10) as server:
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
         return True
     except Exception as e:
-        print(f"SMTP Fehler: {e}")
+        # Dies schreibt den genauen Fehler in deine Render-Logs
+        print(f"Detaillierter SMTP Fehler: {e}")
         return False
 
 @app.route('/')
