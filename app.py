@@ -9,12 +9,14 @@ app = Flask(__name__)
 app.secret_key = "abifinanzen_premium_key"
 
 # --- KONFIGURATION ---
-SMTP_SERVER = "smtp.dein-anbieter.de"
+SMTP_SERVER = "smtp.zeptomail.eu"
 SMTP_PORT = 587
-SMTP_USER = "deine-mail@abifinanzen.de"
-SMTP_PASSWORD = "dein-passwort"
-SENDER_NAME = "Abifinanzen Team"
+SMTP_USER = "emailapikey"
+SMTP_PASSWORD = "yA6KbHtbug+jwGoGRhRvhJOL+t03rP06iiy14irif8IhI9Ll2qFt0EducdCzLmDdjI/Q4qhTPtsTI9rv79xafJA0NoICfJTGTuv4P2uV48xh8ciEYNYig56qBbgUG6RLcBMjDCwxRPgoWA=="
 
+# Das ist die Adresse, die du bei ZeptoMail verifiziert hast!
+ACTUAL_SENDER_EMAIL = "noreply@abifinanzen.de" 
+SENDER_NAME = "Abifinanzen Team"
 # --- HOCHWERTIGES HTML EMAIL TEMPLATE ---
 def generate_html_email(title, greeting, lead_text, amount_label, amount_value, detail_label, detail_value, footer_extra=""):
     return f"""
@@ -179,16 +181,18 @@ MAIN_UI = """
 """
 
 # --- LOGIK ---
-
 def send_mail(recipient, subject, html_content):
     try:
         msg = MIMEMultipart()
-        msg['From'] = f"{SENDER_NAME} <{SMTP_USER}>"
+        # WICHTIG: Hier wird die verifizierte Adresse als Absender gesetzt
+        msg['From'] = f"{SENDER_NAME} <{ACTUAL_SENDER_EMAIL}>"
         msg['To'] = recipient
         msg['Subject'] = subject
         msg.attach(MIMEText(html_content, 'html'))
+        
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
+            # Der Login erfolgt mit 'emailapikey'
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
         return True
